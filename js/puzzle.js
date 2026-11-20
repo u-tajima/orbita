@@ -1,5 +1,5 @@
 /**
- * ORBITA Sub-Game: "MISSION" — 10-Stage Swing-By & Warp Puzzle Mode
+ * ORBITA Sub-Game: "MISSION" — 50-Stage Swing-By & Warp Puzzle Mode
  * - Pre-placed Fixed Stars, Stationary Planets, & Orbiting Planets/Moons
  * - Paired Subspace Warp Holes (velocity-preserving teleportation + full preview!)
  * - Red Debris Hazards (static barriers & rotating orbital belts)
@@ -59,281 +59,7 @@
     }
   };
 
-  function makeVerticalDebrisWall(x, yMin, yMax, step, radius = 14) {
-    const arr = [];
-    for (let y = yMin; y <= yMax; y += step) {
-      arr.push({ x, y, r: radius });
-    }
-    return arr;
-  }
-
-  function makeDebrisRing(cx, cy, orbitR, count, skipIndices, orbitSpeed, radius = 13, phaseOffset = 0) {
-    const skip = new Set(skipIndices || []);
-    const arr = [];
-    for (let k = 0; k < count; k++) {
-      if (skip.has(k)) continue;
-      arr.push({
-        cx,
-        cy,
-        orbitR,
-        orbitPhase: phaseOffset + (k * Math.PI * 2) / count,
-        orbitSpeed,
-        r: radius
-      });
-    }
-    return arr;
-  }
-
-  /**
-   * 10 Handcrafted & Mathematically Verified Swing-By Stages
-   * Modes:
-   * - 'goal': Reach the Goal Portal
-   * - 'destroy': Shatter all Crystalline Target Obstacles
-   * - 'both': Shatter all Seal Cores to unlock the Goal Portal, then enter the Goal!
-   */
-  const STAGES = [
-    {
-      id: 1,
-      title: '重力カーブ',
-      subtitle: '恒星の引力で軌道を曲げ、ゴールへ到達',
-      badge: 'GOAL',
-      mode: 'goal',
-      spanW: 860,
-      spanH: 580,
-      pad: { x: -290, y: 120 },
-      goal: { x: 260, y: -135, r: 28 },
-      bodies: [
-        { kind: 'star', x: 0, y: 0, r: 26, gm: 3600000, visualR: 175 }
-      ],
-      debris: [
-        { x: -80, y: -35, r: 13 },
-        { x: -40, y: -75, r: 13 },
-        { x: 10, y: -105, r: 13 }
-      ],
-      targets: [],
-      warps: []
-    },
-    {
-      id: 2,
-      title: '砕氷スイングバイ',
-      subtitle: '恒星を回り込む曲線で3つの結晶障害物を粉砕',
-      badge: 'DESTROY',
-      mode: 'destroy',
-      spanW: 840,
-      spanH: 580,
-      pad: { x: -260, y: 145 },
-      goal: null,
-      bodies: [
-        { kind: 'star', x: 10, y: 0, r: 26, gm: 4100000, visualR: 180 }
-      ],
-      debris: [],
-      targets: [
-        { x: -5, y: 135, r: 21 },
-        { x: 112, y: 10, r: 21 },
-        { x: 10, y: -125, r: 21 }
-      ],
-      warps: []
-    },
-    {
-      id: 3,
-      title: '二重惑星アシスト',
-      subtitle: '恒星と惑星の重力場をS字に渡りゴールへ',
-      badge: 'GOAL',
-      mode: 'goal',
-      spanW: 920,
-      spanH: 600,
-      pad: { x: -330, y: 135 },
-      goal: { x: 320, y: 115, r: 28 },
-      bodies: [
-        { kind: 'star', x: -105, y: 25, r: 25, gm: 3400000, visualR: 165 },
-        { kind: 'planet', x: 145, y: -45, r: 18, gm: 1850000, visualR: 130 }
-      ],
-      debris: [
-        { x: 20, y: 135, r: 13 },
-        { x: 75, y: 120, r: 13 },
-        { x: 130, y: 105, r: 13 },
-        { x: -105, y: -95, r: 13 }
-      ],
-      targets: [],
-      warps: []
-    },
-    {
-      id: 4,
-      title: 'ワープゲート',
-      subtitle: 'デブリ長城をワープホール跳躍と惑星スイングバイで突破',
-      badge: 'WARP + GOAL',
-      mode: 'goal',
-      spanW: 920,
-      spanH: 620,
-      pad: { x: -310, y: -120 },
-      goal: { x: 290, y: 125, r: 28 },
-      bodies: [
-        { kind: 'star', x: -150, y: 15, r: 25, gm: 3300000, visualR: 160 },
-        { kind: 'planet', x: 165, y: 15, r: 19, gm: 2200000, visualR: 135 }
-      ],
-      debris: makeVerticalDebrisWall(0, -560, 560, 44, 14),
-      targets: [],
-      warps: [
-        { x1: -150, y1: 155, x2: 120, y2: -150, r: 25, pairIndex: 0 }
-      ]
-    },
-    {
-      id: 5,
-      title: 'デブリベルトの封印',
-      subtitle: '回転デブリを抜けて封印結晶をすべて壊しゴールへ',
-      badge: 'SEAL + GOAL',
-      mode: 'both',
-      spanW: 880,
-      spanH: 640,
-      pad: { x: -295, y: 135 },
-      goal: { x: 15, y: -245, r: 29 },
-      bodies: [
-        { kind: 'star', x: 0, y: 0, r: 26, gm: 4100000, visualR: 175 }
-      ],
-      debris: makeDebrisRing(0, 0, 215, 8, [2, 3, 6, 7], 0.38, 13, 0),
-      targets: [
-        { x: -10, y: 132, r: 22 },
-        { x: 112, y: 8, r: 22 }
-      ],
-      warps: []
-    },
-    {
-      id: 6,
-      title: '公転惑星の窓',
-      subtitle: '公転する巨大惑星の重力アシストでデブリ帯を越えろ',
-      badge: 'ORBIT + GOAL',
-      mode: 'goal',
-      spanW: 940,
-      spanH: 640,
-      pad: { x: -330, y: 150 },
-      goal: { x: 310, y: -165, r: 28 },
-      bodies: [
-        { kind: 'star', x: -40, y: 0, r: 26, gm: 3600000, visualR: 165 },
-        { kind: 'planet', cx: -40, cy: 0, orbitR: 195, orbitPhase: 0.6, orbitSpeed: 0.55, r: 17, gm: 1950000, visualR: 120 }
-      ],
-      debris: [
-        { x: -40, y: -95, r: 14 },
-        { x: 5, y: -85, r: 14 },
-        { x: 50, y: -70, r: 14 },
-        { x: 95, y: -55, r: 14 }
-      ],
-      targets: [],
-      warps: []
-    },
-    {
-      id: 7,
-      title: 'ワープ連鎖クラッシュ',
-      subtitle: '2組のワープホールを繋ぎ3つの結晶障害物を連続破壊',
-      badge: 'WARP + DESTROY',
-      mode: 'destroy',
-      spanW: 940,
-      spanH: 600,
-      pad: { x: -330, y: 120 },
-      goal: null,
-      bodies: [
-        { kind: 'star', x: -155, y: 0, r: 24, gm: 3200000, visualR: 155 },
-        { kind: 'star2', x: 155, y: 0, r: 24, gm: 3200000, visualR: 155 }
-      ],
-      debris: [
-        { x: 0, y: 0, r: 14 },
-        { x: 0, y: 52, r: 13 },
-        { x: 0, y: -52, r: 13 }
-      ],
-      targets: [
-        { x: -155, y: 118, r: 22 },
-        { x: 155, y: 118, r: 22 },
-        { x: 260, y: 15, r: 22 }
-      ],
-      warps: [
-        { x1: -40, y1: -115, x2: 50, y2: 115, r: 26, pairIndex: 0 },
-        { x1: 265, y1: -50, x2: -265, y2: -95, r: 26, pairIndex: 1 }
-      ]
-    },
-    {
-      id: 8,
-      title: '連星カオス回廊',
-      subtitle: '双子恒星と逆回転デブリの隙間を縫う8の字スイングバイ',
-      badge: 'GOAL',
-      mode: 'goal',
-      spanW: 880,
-      spanH: 660,
-      pad: { x: 0, y: 245 },
-      goal: { x: 0, y: -240, r: 28 },
-      bodies: [
-        { kind: 'star', x: -155, y: 0, r: 25, gm: 3500000, visualR: 155 },
-        { kind: 'star2', x: 155, y: 0, r: 25, gm: 3500000, visualR: 155 }
-      ],
-      debris: [
-        { x: 0, y: 0, r: 15 },
-        { x: -38, y: 25, r: 13 },
-        { x: 38, y: -25, r: 13 },
-        { cx: -155, cy: 0, orbitR: 105, orbitPhase: 0.0, orbitSpeed: 0.65, r: 12 },
-        { cx: -155, cy: 0, orbitR: 105, orbitPhase: Math.PI, orbitSpeed: 0.65, r: 12 },
-        { cx: 155, cy: 0, orbitR: 105, orbitPhase: Math.PI * 0.5, orbitSpeed: -0.65, r: 12 },
-        { cx: 155, cy: 0, orbitR: 105, orbitPhase: Math.PI * 1.5, orbitSpeed: -0.65, r: 12 }
-      ],
-      targets: [],
-      warps: []
-    },
-    {
-      id: 9,
-      title: '軌道要塞へのワープ投入',
-      subtitle: 'ワープで重恒星の周回軌道へ直接突入し、公転する4標的を一掃',
-      badge: 'WARP + DESTROY',
-      mode: 'destroy',
-      spanW: 940,
-      spanH: 620,
-      pad: { x: -340, y: 130 },
-      goal: null,
-      bodies: [
-        { kind: 'star', x: 60, y: 0, r: 28, gm: 4500000, visualR: 180 },
-        { kind: 'planet', x: -200, y: 10, r: 18, gm: 1800000, visualR: 120 }
-      ],
-      debris: [
-        { cx: 60, cy: 0, orbitR: 215, orbitPhase: 0.0, orbitSpeed: 0.35, r: 13 },
-        { cx: 60, cy: 0, orbitR: 215, orbitPhase: 2.094, orbitSpeed: 0.35, r: 13 },
-        { cx: 60, cy: 0, orbitR: 215, orbitPhase: 4.188, orbitSpeed: 0.35, r: 13 }
-      ],
-      targets: [
-        { cx: 60, cy: 0, orbitR: 130, orbitPhase: 0.4, orbitSpeed: -0.42, r: 22 },
-        { cx: 60, cy: 0, orbitR: 130, orbitPhase: 1.97, orbitSpeed: -0.42, r: 22 },
-        { cx: 60, cy: 0, orbitR: 130, orbitPhase: 3.54, orbitSpeed: -0.42, r: 22 },
-        { cx: 60, cy: 0, orbitR: 130, orbitPhase: 5.11, orbitSpeed: -0.42, r: 22 }
-      ],
-      warps: [
-        { x1: -105, y1: -95, x2: 60, y2: 132, r: 26, pairIndex: 0 }
-      ]
-    },
-    {
-      id: 10,
-      title: '超重力グランドツアー',
-      subtitle: '連星・公転衛星・ワープを制し、全封印を砕いて最終ゴールへ',
-      badge: 'GRAND FINALE',
-      mode: 'both',
-      spanW: 980,
-      spanH: 660,
-      pad: { x: -350, y: 135 },
-      goal: { x: 165, y: -220, r: 31 },
-      bodies: [
-        { kind: 'star', x: -165, y: 10, r: 25, gm: 3500000, visualR: 160 },
-        { kind: 'star2', x: 165, y: -10, r: 25, gm: 3800000, visualR: 165 },
-        { kind: 'moon', cx: 165, cy: -10, orbitR: 155, orbitPhase: 1.8, orbitSpeed: 0.48, r: 14, gm: 1100000, visualR: 95 }
-      ],
-      debris: [
-        { x: 0, y: -35, r: 14 },
-        { x: 0, y: 25, r: 14 },
-        { x: 0, y: -95, r: 13 },
-        { x: 0, y: 85, r: 13 }
-      ],
-      targets: [
-        { x: -165, y: 132, r: 23 },
-        { x: 175, y: 112, r: 23 }
-      ],
-      warps: [
-        { x1: -40, y1: -115, x2: 45, y2: 120, r: 27, pairIndex: 0 }
-      ]
-    }
-  ];
+  const STAGES = window.ORBITA_STAGES || [];
 
   // =========================================================================
   // Geometry & Deterministic Step Helpers
@@ -566,7 +292,7 @@
     const numStr = String(st.id).padStart(2, '0');
     const stars = savedStars[st.id] || 0;
     const starIcons = stars > 0 ? ' ' + '★'.repeat(stars) + '☆'.repeat(3 - stars) : '';
-    stageSelectLabel.textContent = `STAGE ${numStr} · ${st.title}${starIcons}`;
+    stageSelectLabel.textContent = `STAGE ${numStr}${starIcons}`;
   }
 
   function renderStageGrid() {
@@ -580,13 +306,10 @@
       for (let s = 1; s <= 3; s++) {
         starRow += `<span class="stage-star ${s <= stars ? 'earned' : ''}">★</span>`;
       }
+      const modeGlyph = st.mode === 'goal' ? '◎' : (st.mode === 'destroy' ? '◆' : '◆◎');
       btn.innerHTML = `
-        <div class="stage-card-top">
-          <span class="stage-num">${String(st.id).padStart(2, '0')}</span>
-          <span class="stage-badge">${st.badge}</span>
-        </div>
-        <div class="stage-card-title">${st.title}</div>
-        <div class="stage-card-desc">${st.subtitle}</div>
+        <div class="stage-card-num">${String(st.id).padStart(2, '0')}</div>
+        <div class="stage-card-glyph">${modeGlyph}</div>
         <div class="stage-card-stars">${starRow}</div>
       `;
       btn.addEventListener('click', () => {
