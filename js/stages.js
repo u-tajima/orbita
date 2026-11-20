@@ -8,9 +8,9 @@
  *   2. Places Warp Holes, 3–6 Destructible Targets (mixing orbiting constellations &
  *      non-sequential looping positions so they never look like breadcrumb hints),
  *      and Goal Portals directly onto the verified 1/60s Verlet trajectory.
- *   3. Seals off boring direct/cheese shortcuts with automatic line-of-sight blockers
- *      and symmetric/scattered asteroid fields that preserve razor-thin (すれっすれ)
- *      clearance along the true solution while hiding the route naturally.
+ *   3. Keeps debris minimal & architectural (only intentional warp walls or sparse
+ *      rotating rings), leaving open space so players can discover multiple orbital
+ *      routes and bad trajectories naturally fly off into deep space.
  *   4. All moving planets, orbiting targets, and rotating rings share a 9.0s harmonic
  *      period (OMEGA = 2π/9) so the exact ★★★ window repeats reliably forever.
  */
@@ -18,16 +18,6 @@
   const FIXED_DT = 1 / 60;
   const MAX_SIM_STEPS = 345; // Fits 100% inside puzzle.js PREVIEW_STEPS (360)
   const OMEGA = (Math.PI * 2) / 9.0;
-
-  function makeRng(seed) {
-    let s = (seed >>> 0) || 1;
-    return function () {
-      s = (s + 0x6D2B79F5) | 0;
-      let t = Math.imul(s ^ (s >>> 15), 1 | s);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
 
   function makeVerticalDebrisWall(x, yMin, yMax, step, radius = 14) {
     const arr = [];
@@ -254,10 +244,9 @@
 
   /**
    * Builds a guaranteed 1-shot ★★★ solvable stage from a trajectory-first blueprint:
-   * - Selects a richly curved multi-body trajectory (never a boring straight line).
+   * - Selects a richly curved multi-body trajectory.
    * - Places warps & targets (orbiting + non-sequential) directly on the verified curve.
-   * - Adds anti-cheese direct-line blockers and symmetric/scattered asteroid fields
-   *   so targets/debris do NOT telegraph the exact solution line while blocking shortcuts.
+   * - Keeps debris minimal & architectural so open space allows multiple creative routes.
    */
   function buildStage(bp) {
     const spanW = bp.spanW || 960;
@@ -267,7 +256,6 @@
     const mode = bp.mode;
     const minSteps = bp.minSteps || 180;
     const wantWarps = (bp.warpSpecs || []).length;
-    const rng = makeRng(bp.id * 2654435761 + 17);
 
     function buildWarpsForShot(ang, spd) {
       const placedWarps = [];
@@ -312,7 +300,6 @@
     };
 
     let bestScore = scoreTrace(baseTrace, 0);
-    // Always refine multi-body stages (>= 4 bodies) or when primary shot is short/straight
     if (bestScore < 280 || bodies.length >= 4 || !baseTrace || baseTrace.pts.length < minSteps) {
       for (let da = -30; da <= 30; da += 5) {
         for (let ds = -65; ds <= 65; ds += 13) {
@@ -337,8 +324,7 @@
       baseTrace = traceTrajectory(pad, bestAngle, bestSpeed, bodies, spanW, spanH, warps, [], MAX_SIM_STEPS);
     }
 
-    // 2. Place Targets sequentially (mixing orbiting constellations & non-sequential positions
-    //    so they look symmetric/scattered instead of a breadcrumb trail!)
+    // 2. Place Targets sequentially (mixing orbiting constellations & non-sequential positions)
     const targets = [];
     const targetSpecs = bp.targetSpecs || [];
     for (let k = 0; k < targetSpecs.length; k++) {
@@ -480,103 +466,10 @@
       clearStep = Math.min(finalTrace.pts.length - 1, lastHit + 4);
     }
 
-    // 4. Build Debris:
-    //    (a) Stage's handcrafted walls / rotating rings
-    //    (b) Anti-cheese direct-line blockers between pad and goal (sealing easy shortcuts!)
-    //    (c) Symmetric / scattered asteroid field across the whole arena (so obstacles look
-    //        organic & balanced instead of telegraphing the solution!)
-    //    (d) Optional subtle grazing rocks for late-stage すれっすれ tension
+    // 4. Keep debris minimal & architectural (only intentional walls / rotating rings),
+    //    leaving open space so players can discover multiple orbital routes and bad shots
+    //    naturally fly off into deep space instead of hitting cluttered rocks everywhere.
     const rawDebris = (bp.debris || []).slice();
-
-    // (b) Automatic anti-cheese direct-line blockers
-    if (goal && bp.blockDirect !== false) {
-      const dx = goal.x - pad.x;
-      const dy = goal.y - pad.y;
-      const dist = Math.hypot(dx, dy) || 1;
-      const nx = -dy / dist;
-      const ny = dx / dist;
-      const steps = Math.max(4, Math.min(9, Math.floor(dist / 68)));
-      for (let i = 1; i < steps; i++) {
-        const f = i / steps;
-        const bx = Math.round(pad.x + dx * f);
-        const by = Math.round(pad.y + dy * f);
-        rawDebris.push({ x: bx, y: by, r: 13 });
-        if (bp.blockDirect === 'wide' && i % 2 === 1) {
-          rawDebris.push({ x: Math.round(bx + nx * 42), y: Math.round(by + ny * 42), r: 12 });
-          rawDebris.push({ x: Math.round(bx - nx * 42), y: Math.round(by - ny * 42), r: 12 });
-        }
-      }
-    }
-
-    // (c) Symmetric / scattered asteroid field (deterministic PRNG, looks organic & non-telegraphed!)
-    const fieldCount = bp.fieldCount || 0;
-    const symMode = bp.symField || 'rot';
-    const minSpacing = 48;
-    const fieldPlaced = [];
-    for (let attempt = 0; attempt < fieldCount * 10 && fieldPlaced.length < fieldCount; attempt++) {
-      const fx = Math.round((rng() * 2 - 1) * (spanW * 0.43));
-      const fy = Math.round((rng() * 2 - 1) * (spanH * 0.42));
-      const fr = 11 + Math.floor(rng() * 4);
-      const group = [{ x: fx, y: fy, r: fr }];
-      if (symMode === 'rot') {
-        group.push({ x: -fx, y: -fy, r: fr });
-      } else if (symMode === 'y') {
-        group.push({ x: fx, y: -fy, r: fr });
-      } else if (symMode === 'xy') {
-        group.push({ x: -fx, y: fy, r: fr }, { x: fx, y: -fy, r: fr }, { x: -fx, y: -fy, r: fr });
-      }
-      for (const pt of group) {
-        if (fieldPlaced.length >= fieldCount) break;
-        if (!isClearOfBodies(pt.x, pt.y, bodies, 0, pt.r + 18)) continue;
-        if (!isClearOfWarps(pt.x, pt.y, warps, pt.r + 22)) continue;
-        if (Math.hypot(pt.x - pad.x, pt.y - pad.y) < 62) continue;
-        if (goal && Math.hypot(pt.x - goal.x, pt.y - goal.y) < goal.r + pt.r + 22) continue;
-        let nearT = false;
-        for (const tg of targets) {
-          if (!tg.orbitR && Math.hypot(pt.x - tg.x, pt.y - tg.y) < tg.r + pt.r + 18) {
-            nearT = true;
-            break;
-          }
-        }
-        if (nearT) continue;
-        let crowded = false;
-        for (const ex of fieldPlaced) {
-          if (Math.hypot(pt.x - ex.x, pt.y - ex.y) < minSpacing) {
-            crowded = true;
-            break;
-          }
-        }
-        if (crowded) continue;
-        fieldPlaced.push(pt);
-        rawDebris.push(pt);
-      }
-    }
-
-    // (d) Optional single-sided or tight grazing stones (すれっすれ!)
-    const gates = bp.gates || [];
-    for (let g = 0; g < gates.length; g++) {
-      const gt = gates[g];
-      const idx = gt.step ? Math.min(clearStep - 8, gt.step) : Math.floor(clearStep * gt.frac);
-      if (idx < 18 || idx >= clearStep - 5) continue;
-      const p = finalTrace.pts[idx];
-      if (p.breakSegment) continue;
-      const vmag = Math.hypot(p.vx, p.vy) || 1;
-      const nx = -p.vy / vmag;
-      const ny = p.vx / vmag;
-      const dr = gt.r || 13;
-      const gap = gt.gap || 14;
-      const sides = gt.side === 'left' ? [1] : (gt.side === 'right' ? [-1] : [1, -1]);
-      for (const sgn of sides) {
-        const dx = Math.round(p.x + nx * sgn * (dr + gap));
-        const dy = Math.round(p.y + ny * sgn * (dr + gap));
-        if (Math.abs(dx) > spanW * 0.47 || Math.abs(dy) > spanH * 0.47) continue;
-        if (Math.hypot(dx - pad.x, dy - pad.y) < 52) continue;
-        if (goal && Math.hypot(dx - goal.x, dy - goal.y) < goal.r + dr + 16) continue;
-        if (!isClearOfBodies(dx, dy, bodies, p.t, dr + 10)) continue;
-        if (!isClearOfWarps(dx, dy, warps, dr + 10)) continue;
-        rawDebris.push({ x: dx, y: dy, r: dr });
-      }
-    }
 
     // 5. Final Collision-Free Guarantee Filter against the verified solution trajectory!
     const safeDebris = [];
@@ -737,7 +630,7 @@
   ];
 
   // =========================================================================
-  // Stages 11–50: Anti-Cheese, Non-Breadcrumb, Multi-Body (up to 7 bodies!)
+  // Stages 11–50: Open-Space Multi-Body Orbital Puzzles (minimal debris!)
   // =========================================================================
   const BLUEPRINTS = [
     // ================= 11–20: Deep Curves & 4–5 Body Slaloms =================
@@ -746,11 +639,9 @@
       pad: { x: -300, y: 135 },
       sol: { angleDeg: -8, speed: 175 },
       goalFrac: 0.90,
-      blockDirect: 'wide',
       bodies: [{ kind: 'star', x: 115, y: 0, r: 27, gm: 4600000, visualR: 185 }],
-      debris: makeHorizontalDebrisWall(0, -370, -65, 40, 14),
-      targetSpecs: [{ frac: 0.34 }, { frac: 0.58 }, { frac: 0.76 }],
-      fieldCount: 8, symField: 'y'
+      debris: makeHorizontalDebrisWall(0, -350, -95, 44, 14),
+      targetSpecs: [{ frac: 0.34 }, { frac: 0.58 }, { frac: 0.76 }]
     },
     {
       id: 12, mode: 'destroy', spanW: 920, spanH: 620,
@@ -765,62 +656,51 @@
         { frac: 0.44, orbit: { cx: 10, cy: -10, orbitSpeed: OMEGA } },
         { frac: 0.68, orbit: { cx: 10, cy: -10, orbitSpeed: -OMEGA } },
         { frac: 0.88 }
-      ],
-      fieldCount: 10, symField: 'rot'
+      ]
     },
     {
-      // 4-Planet Diamond Slalom!
       id: 13, mode: 'both', spanW: 980, spanH: 640,
       pad: { x: -355, y: 120 },
       sol: { angleDeg: -22, speed: 245 },
       goalFrac: 0.91,
-      blockDirect: 'wide',
       bodies: [
         { kind: 'planet', x: -165, y: -70, r: 19, gm: 2250000, visualR: 130 },
         { kind: 'planet', x: 0, y: 85, r: 19, gm: 2250000, visualR: 130 },
         { kind: 'planet', x: 0, y: -155, r: 17, gm: 1650000, visualR: 115 },
         { kind: 'planet', x: 175, y: -55, r: 19, gm: 2250000, visualR: 130 }
       ],
-      targetSpecs: [{ frac: 0.26 }, { frac: 0.56 }, { frac: 0.78 }],
-      fieldCount: 12, symField: 'xy'
+      targetSpecs: [{ frac: 0.26 }, { frac: 0.56 }, { frac: 0.78 }]
     },
     {
       id: 14, mode: 'both', spanW: 920, spanH: 620,
       pad: { x: -310, y: -135 },
       sol: { angleDeg: 24, speed: 192 },
       goalFrac: 0.90,
-      blockDirect: 'wide',
       bodies: [
         { kind: 'star', x: 35, y: 5, r: 26, gm: 4300000, visualR: 180 },
         { kind: 'planet', x: 245, y: -95, r: 17, gm: 1700000, visualR: 115 }
       ],
-      debris: makeHorizontalDebrisWall(-118, -190, 40, 40, 13),
       targetSpecs: [
         { frac: 0.25 },
         { frac: 0.52, orbit: { cx: 35, cy: 5, orbitSpeed: OMEGA } },
         { frac: 0.74 }
-      ],
-      fieldCount: 10, symField: 'rot'
+      ]
     },
     {
-      // 4-Body Binary + Flanking Planets
       id: 15, mode: 'both', spanW: 960, spanH: 640,
       pad: { x: -345, y: 140 },
       sol: { angleDeg: -24, speed: 235 },
       goalFrac: 0.91,
-      blockDirect: 'wide',
       bodies: [
         { kind: 'star', x: 0, y: -150, r: 24, gm: 3400000, visualR: 155 },
         { kind: 'star2', x: 0, y: 150, r: 24, gm: 3400000, visualR: 155 },
         { kind: 'planet', x: -200, y: -45, r: 17, gm: 1600000, visualR: 110 },
         { kind: 'planet', x: 200, y: 45, r: 17, gm: 1600000, visualR: 110 }
       ],
-      debris: [{ x: 0, y: 0, r: 15 }, { x: 0, y: -44, r: 13 }, { x: 0, y: 44, r: 13 }],
-      targetSpecs: [{ frac: 0.24 }, { frac: 0.54 }, { frac: 0.76 }],
-      fieldCount: 10, symField: 'rot'
+      debris: [{ x: 0, y: 0, r: 14 }],
+      targetSpecs: [{ frac: 0.24 }, { frac: 0.54 }, { frac: 0.76 }]
     },
     {
-      // 4-Body S-Weave Destruction
       id: 16, mode: 'destroy', spanW: 960, spanH: 640,
       pad: { x: -345, y: -120 },
       sol: { angleDeg: 10, speed: 225 },
@@ -836,31 +716,25 @@
         { frac: 0.58 },
         { frac: 0.76, orbit: { cx: 145, cy: -50, orbitSpeed: -OMEGA } },
         { frac: 0.90 }
-      ],
-      fieldCount: 12, symField: 'rot'
+      ]
     },
     {
       id: 17, mode: 'both', spanW: 940, spanH: 620,
       pad: { x: -335, y: 145 },
       sol: { angleDeg: -28, speed: 198 },
       goalFrac: 0.90,
-      blockDirect: 'wide',
       bodies: [
         { kind: 'star', x: 90, y: 0, r: 27, gm: 4600000, visualR: 185 },
         { kind: 'planet', x: -175, y: -105, r: 17, gm: 1600000, visualR: 115 },
         { kind: 'planet', x: -175, y: 105, r: 17, gm: 1600000, visualR: 115 }
       ],
-      debris: makeVerticalDebrisWall(-75, 35, 260, 40, 13),
-      targetSpecs: [{ frac: 0.28 }, { frac: 0.58 }, { frac: 0.78 }],
-      fieldCount: 10, symField: 'y'
+      targetSpecs: [{ frac: 0.28 }, { frac: 0.58 }, { frac: 0.78 }]
     },
     {
-      // 4-Body Binary Figure-8 + 4 Seals
       id: 18, mode: 'both', spanW: 980, spanH: 640,
       pad: { x: -355, y: -140 },
       sol: { angleDeg: 26, speed: 225 },
       goalFrac: 0.91,
-      blockDirect: 'wide',
       bodies: [
         { kind: 'star', x: -155, y: 0, r: 24, gm: 3500000, visualR: 155 },
         { kind: 'star2', x: 155, y: 0, r: 24, gm: 3500000, visualR: 155 },
@@ -872,11 +746,9 @@
         { frac: 0.42, orbit: { cx: -155, cy: 0, orbitSpeed: OMEGA } },
         { frac: 0.64, orbit: { cx: 155, cy: 0, orbitSpeed: -OMEGA } },
         { frac: 0.80 }
-      ],
-      fieldCount: 12, symField: 'xy'
+      ]
     },
     {
-      // 4-Planet Staggered Corridor
       id: 19, mode: 'destroy', spanW: 960, spanH: 620,
       pad: { x: -355, y: -55 },
       sol: { angleDeg: -10, speed: 245 },
@@ -886,16 +758,13 @@
         { kind: 'planet', x: 115, y: 95, r: 18, gm: 2200000, visualR: 125 },
         { kind: 'planet', x: 255, y: -85, r: 18, gm: 2200000, visualR: 125 }
       ],
-      targetSpecs: [{ frac: 0.16 }, { frac: 0.36 }, { frac: 0.56 }, { frac: 0.74 }, { frac: 0.90 }],
-      fieldCount: 12, symField: 'rot'
+      targetSpecs: [{ frac: 0.16 }, { frac: 0.36 }, { frac: 0.56 }, { frac: 0.74 }, { frac: 0.90 }]
     },
     {
-      // 5-Body Crown (1 Star + 4 Corner Planets)
       id: 20, mode: 'both', spanW: 980, spanH: 660,
       pad: { x: -355, y: 165 },
       sol: { angleDeg: -36, speed: 230 },
       goalFrac: 0.91,
-      blockDirect: 'wide',
       bodies: [
         { kind: 'star', x: 0, y: 0, r: 26, gm: 4000000, visualR: 170 },
         { kind: 'planet', x: -210, y: -125, r: 17, gm: 1700000, visualR: 115 },
@@ -908,8 +777,7 @@
         { frac: 0.44, orbit: { cx: 0, cy: 0, orbitSpeed: OMEGA } },
         { frac: 0.64 },
         { frac: 0.80, orbit: { cx: 0, cy: 0, orbitSpeed: -OMEGA } }
-      ],
-      fieldCount: 14, symField: 'xy'
+      ]
     },
 
     // ================= 21–30: Warp Engineering + Multi-Body Fields =================
@@ -925,8 +793,7 @@
       ],
       debris: makeVerticalDebrisWall(25, -560, 560, 44, 14),
       warpSpecs: [{ step: 78, exitX: 140, exitY: 140, r: 26, pairIndex: 0 }],
-      targetSpecs: [{ frac: 0.20 }, { frac: 0.58 }, { frac: 0.78 }],
-      fieldCount: 10, symField: 'rot'
+      targetSpecs: [{ frac: 0.20 }, { frac: 0.58 }, { frac: 0.78 }]
     },
     {
       id: 22, mode: 'destroy', spanW: 960, spanH: 640,
@@ -946,11 +813,9 @@
         { frac: 0.62, orbit: { cx: 115, cy: 0, orbitSpeed: OMEGA } },
         { frac: 0.78, orbit: { cx: 115, cy: 0, orbitSpeed: OMEGA } },
         { frac: 0.90 }
-      ],
-      fieldCount: 12, symField: 'y'
+      ]
     },
     {
-      // 4-Body 3-Chamber Double-Warp Maze
       id: 23, mode: 'both', spanW: 1000, spanH: 640,
       pad: { x: -360, y: 125 },
       sol: { angleDeg: -38, speed: 222 },
@@ -969,8 +834,7 @@
         { step: 62, exitX: -35, exitY: 140, r: 26, pairIndex: 0 },
         { step: 140, exitX: 200, exitY: -145, r: 26, pairIndex: 1 }
       ],
-      targetSpecs: [{ frac: 0.16 }, { frac: 0.44 }, { frac: 0.76 }],
-      fieldCount: 10, symField: 'rot'
+      targetSpecs: [{ frac: 0.16 }, { frac: 0.44 }, { frac: 0.76 }]
     },
     {
       id: 24, mode: 'both', spanW: 960, spanH: 640,
@@ -989,11 +853,9 @@
         { frac: 0.22 },
         { frac: 0.50, orbit: { cx: 175, cy: -10, orbitSpeed: OMEGA } },
         { frac: 0.74 }
-      ],
-      fieldCount: 12, symField: 'rot'
+      ]
     },
     {
-      // 4-Body Horizontal Divide + 5 Targets
       id: 25, mode: 'destroy', spanW: 960, spanH: 650,
       pad: { x: -340, y: 155 },
       sol: { angleDeg: 18, speed: 215 },
@@ -1005,27 +867,22 @@
       ],
       debris: makeHorizontalDebrisWall(0, -600, 600, 44, 14),
       warpSpecs: [{ step: 82, exitX: -200, exitY: -130, r: 26, pairIndex: 0 }],
-      targetSpecs: [{ frac: 0.16 }, { frac: 0.44 }, { frac: 0.62 }, { frac: 0.76 }, { frac: 0.90 }],
-      fieldCount: 12, symField: 'xy'
+      targetSpecs: [{ frac: 0.16 }, { frac: 0.44 }, { frac: 0.62 }, { frac: 0.76 }, { frac: 0.90 }]
     },
     {
       id: 26, mode: 'both', spanW: 960, spanH: 640,
       pad: { x: -335, y: 155 },
       sol: { angleDeg: -22, speed: 218 },
       goalFrac: 0.90,
-      blockDirect: 'wide',
       bodies: [
         { kind: 'star', x: 25, y: 10, r: 26, gm: 4100000, visualR: 175 },
         { kind: 'planet', x: 245, y: -120, r: 17, gm: 1700000, visualR: 115 },
         { kind: 'planet', x: -215, y: -110, r: 17, gm: 1700000, visualR: 115 }
       ],
-      debris: makeHorizontalDebrisWall(0, -390, -130, 40, 13),
       warpSpecs: [{ step: 92, exitX: -115, exitY: -135, r: 26, pairIndex: 0 }],
-      targetSpecs: [{ frac: 0.24 }, { frac: 0.56 }, { frac: 0.76 }],
-      fieldCount: 12, symField: 'y'
+      targetSpecs: [{ frac: 0.24 }, { frac: 0.56 }, { frac: 0.76 }]
     },
     {
-      // 4-Body Dual-Warp Twin Orbit + 5 Targets
       id: 27, mode: 'destroy', spanW: 980, spanH: 640,
       pad: { x: -355, y: 145 },
       sol: { angleDeg: -34, speed: 215 },
@@ -1046,16 +903,13 @@
         { frac: 0.54 },
         { frac: 0.74, orbit: { cx: -175, cy: 0, orbitSpeed: -OMEGA } },
         { frac: 0.90 }
-      ],
-      fieldCount: 12, symField: 'rot'
+      ]
     },
     {
-      // 5-Body Star + 4 Planets + Dual Warp + 4 Seals
       id: 28, mode: 'both', spanW: 980, spanH: 650,
       pad: { x: -350, y: 160 },
       sol: { angleDeg: -30, speed: 212 },
       goalFrac: 0.91,
-      blockDirect: 'wide',
       bodies: [
         { kind: 'star', x: 0, y: 0, r: 26, gm: 3700000, visualR: 165 },
         { kind: 'planet', x: -225, y: -115, r: 16, gm: 1450000, visualR: 105 },
@@ -1067,11 +921,9 @@
         { step: 72, exitX: 145, exitY: -135, r: 26, pairIndex: 0 },
         { step: 144, exitX: -200, exitY: -105, r: 26, pairIndex: 1 }
       ],
-      targetSpecs: [{ frac: 0.18 }, { frac: 0.44 }, { frac: 0.64 }, { frac: 0.80 }],
-      fieldCount: 14, symField: 'xy'
+      targetSpecs: [{ frac: 0.18 }, { frac: 0.44 }, { frac: 0.64 }, { frac: 0.80 }]
     },
     {
-      // 4-Body Gravity-Assisted Warp Snipe
       id: 29, mode: 'both', spanW: 980, spanH: 640,
       pad: { x: -350, y: -135 },
       sol: { angleDeg: 28, speed: 208 },
@@ -1084,12 +936,9 @@
       ],
       debris: makeVerticalDebrisWall(55, -560, 560, 44, 14),
       warpSpecs: [{ step: 92, exitX: 165, exitY: -135, r: 26, pairIndex: 0 }],
-      targetSpecs: [{ frac: 0.22 }, { frac: 0.56 }, { frac: 0.76 }],
-      fieldCount: 12, symField: 'rot',
-      gates: [{ frac: 0.70, gap: 16, side: 'left' }]
+      targetSpecs: [{ frac: 0.22 }, { frac: 0.56 }, { frac: 0.76 }]
     },
     {
-      // 5-Body Warp Fortress
       id: 30, mode: 'both', spanW: 980, spanH: 650,
       pad: { x: -355, y: 135 },
       sol: { angleDeg: -26, speed: 212 },
@@ -1101,15 +950,14 @@
         { kind: 'planet', x: 285, y: -155, r: 15, gm: 1250000, visualR: 95 },
         { kind: 'planet', x: 285, y: 155, r: 15, gm: 1250000, visualR: 95 }
       ],
-      debris: makeDebrisRing(105, 0, 215, 10, [], 0, 14, 0),
+      debris: makeDebrisRing(105, 0, 215, 6, [], 0, 14, 0),
       warpSpecs: [{ step: 74, exitX: 105, exitY: 130, r: 26, pairIndex: 0 }],
       targetSpecs: [
         { frac: 0.20 },
         { frac: 0.44, orbit: { cx: 105, cy: 0, orbitSpeed: OMEGA } },
         { frac: 0.62, orbit: { cx: 105, cy: 0, orbitSpeed: OMEGA } },
         { frac: 0.78 }
-      ],
-      fieldCount: 12, symField: 'y'
+      ]
     },
 
     // ================= 31–40: Moving Multi-Body & Orbiting Constellations =================
@@ -1118,7 +966,6 @@
       pad: { x: -340, y: 130 },
       sol: { angleDeg: -24, speed: 215 },
       goalFrac: 0.90,
-      blockDirect: 'wide',
       bodies: [
         { kind: 'star', x: 0, y: 0, r: 26, gm: 3600000, visualR: 165 },
         { kind: 'moon', cx: 0, cy: 0, orbitR: 175, orbitPhase: 0.5, orbitSpeed: OMEGA, r: 15, gm: 1500000, visualR: 105 },
@@ -1129,8 +976,7 @@
         { frac: 0.24, orbit: { cx: 0, cy: 0, orbitSpeed: -OMEGA } },
         { frac: 0.52 },
         { frac: 0.76, orbit: { cx: 0, cy: 0, orbitSpeed: -OMEGA } }
-      ],
-      fieldCount: 12, symField: 'rot'
+      ]
     },
     {
       id: 32, mode: 'destroy', spanW: 940, spanH: 640,
@@ -1141,22 +987,19 @@
         { kind: 'planet', x: -200, y: -125, r: 16, gm: 1450000, visualR: 105 },
         { kind: 'planet', x: 245, y: 135, r: 16, gm: 1450000, visualR: 105 }
       ],
-      debris: makeDebrisRing(20, 0, 210, 8, [0, 4], OMEGA, 13, 0.3),
+      debris: makeDebrisRing(20, 0, 210, 4, [], OMEGA, 13, 0.3),
       targetSpecs: [
         { frac: 0.18 },
         { frac: 0.40, orbit: { cx: 20, cy: 0, orbitSpeed: -OMEGA } },
         { frac: 0.62, orbit: { cx: 20, cy: 0, orbitSpeed: -OMEGA } },
         { frac: 0.84 }
-      ],
-      fieldCount: 10, symField: 'rot'
+      ]
     },
     {
-      // 4-Body Concentric Orbiting Solar System!
       id: 33, mode: 'both', spanW: 980, spanH: 660,
       pad: { x: -355, y: 155 },
       sol: { angleDeg: -26, speed: 225 },
       goalFrac: 0.91,
-      blockDirect: 'wide',
       bodies: [
         { kind: 'star', x: 0, y: 0, r: 25, gm: 3400000, visualR: 160 },
         { kind: 'planet', cx: 0, cy: 0, orbitR: 120, orbitPhase: 0.8, orbitSpeed: OMEGA * 2, r: 15, gm: 1300000, visualR: 100 },
@@ -1167,11 +1010,9 @@
         { frac: 0.24, orbit: { cx: 0, cy: 0, orbitSpeed: OMEGA } },
         { frac: 0.50 },
         { frac: 0.74, orbit: { cx: 0, cy: 0, orbitSpeed: -OMEGA } }
-      ],
-      fieldCount: 12, symField: 'xy'
+      ]
     },
     {
-      // 4-Body Orbiting Crystal Belt (5 Orbiting Targets!)
       id: 34, mode: 'destroy', spanW: 940, spanH: 640,
       pad: { x: -335, y: 135 },
       sol: { angleDeg: -16, speed: 202 },
@@ -1181,23 +1022,20 @@
         { kind: 'planet', x: 245, y: -135, r: 16, gm: 1350000, visualR: 100 },
         { kind: 'planet', x: 245, y: 135, r: 16, gm: 1350000, visualR: 100 }
       ],
-      debris: makeDebrisRing(15, 0, 215, 6, [], -OMEGA, 13, 0.5),
+      debris: makeDebrisRing(15, 0, 215, 4, [], -OMEGA, 13, 0.5),
       targetSpecs: [
         { frac: 0.18, orbit: { cx: 15, cy: 0, orbitSpeed: OMEGA } },
         { frac: 0.36, orbit: { cx: 15, cy: 0, orbitSpeed: OMEGA } },
         { frac: 0.54, orbit: { cx: 15, cy: 0, orbitSpeed: OMEGA } },
         { frac: 0.72, orbit: { cx: 15, cy: 0, orbitSpeed: OMEGA } },
         { frac: 0.88, orbit: { cx: 15, cy: 0, orbitSpeed: OMEGA } }
-      ],
-      fieldCount: 10, symField: 'y'
+      ]
     },
     {
-      // 4-Body Binary + Twin Moons + Twin Rotating Rings
       id: 35, mode: 'both', spanW: 980, spanH: 650,
       pad: { x: -360, y: 145 },
       sol: { angleDeg: -26, speed: 230 },
       goalFrac: 0.91,
-      blockDirect: 'wide',
       bodies: [
         { kind: 'star', x: -165, y: 0, r: 24, gm: 3400000, visualR: 155 },
         { kind: 'star2', x: 165, y: 0, r: 24, gm: 3400000, visualR: 155 },
@@ -1205,19 +1043,16 @@
         { kind: 'moon', cx: 165, cy: 0, orbitR: 115, orbitPhase: 4.1, orbitSpeed: -OMEGA, r: 13, gm: 950000, visualR: 85 }
       ],
       debris: [
-        ...makeDebrisRing(-165, 0, 155, 5, [], OMEGA, 12, 0.2),
-        ...makeDebrisRing(165, 0, 155, 5, [], -OMEGA, 12, 0.9)
+        ...makeDebrisRing(-165, 0, 155, 3, [], OMEGA, 12, 0.2),
+        ...makeDebrisRing(165, 0, 155, 3, [], -OMEGA, 12, 0.9)
       ],
-      targetSpecs: [{ frac: 0.20 }, { frac: 0.44 }, { frac: 0.64 }, { frac: 0.80 }],
-      fieldCount: 10, symField: 'rot'
+      targetSpecs: [{ frac: 0.20 }, { frac: 0.44 }, { frac: 0.64 }, { frac: 0.80 }]
     },
     {
-      // 5-Body Planetary Escort
       id: 36, mode: 'both', spanW: 980, spanH: 650,
       pad: { x: -355, y: -140 },
       sol: { angleDeg: 22, speed: 228 },
       goalFrac: 0.91,
-      blockDirect: 'wide',
       bodies: [
         { kind: 'star', x: -105, y: 20, r: 25, gm: 3500000, visualR: 160 },
         { kind: 'planet', cx: -105, cy: 20, orbitR: 185, orbitPhase: 1.2, orbitSpeed: OMEGA, r: 16, gm: 1700000, visualR: 115 },
@@ -1225,12 +1060,9 @@
         { kind: 'planet', x: 55, y: -175, r: 16, gm: 1450000, visualR: 105 },
         { kind: 'planet', x: 55, y: 175, r: 16, gm: 1450000, visualR: 105 }
       ],
-      debris: makeDebrisRing(55, 0, 80, 4, [], OMEGA * 2, 12, 0),
-      targetSpecs: [{ frac: 0.22 }, { frac: 0.48 }, { frac: 0.74 }],
-      fieldCount: 14, symField: 'y'
+      targetSpecs: [{ frac: 0.22 }, { frac: 0.48 }, { frac: 0.74 }]
     },
     {
-      // 4-Body Double-Ring Gauntlet + 5 Targets
       id: 37, mode: 'destroy', spanW: 960, spanH: 650,
       pad: { x: -355, y: 125 },
       sol: { angleDeg: -14, speed: 208 },
@@ -1240,26 +1072,20 @@
         { kind: 'planet', x: -225, y: 120, r: 16, gm: 1450000, visualR: 105 },
         { kind: 'planet', x: 285, y: 0, r: 17, gm: 1650000, visualR: 110 }
       ],
-      debris: [
-        ...makeDebrisRing(35, 0, 178, 5, [], OMEGA, 12, 0),
-        ...makeDebrisRing(35, 0, 248, 6, [], -OMEGA, 13, 0.6)
-      ],
+      debris: makeDebrisRing(35, 0, 185, 4, [], OMEGA, 12, 0),
       targetSpecs: [
         { frac: 0.16 },
         { frac: 0.36, orbit: { cx: 35, cy: 0, orbitSpeed: OMEGA } },
         { frac: 0.56 },
         { frac: 0.74, orbit: { cx: 35, cy: 0, orbitSpeed: -OMEGA } },
         { frac: 0.90 }
-      ],
-      fieldCount: 10, symField: 'y'
+      ]
     },
     {
-      // 5-Body Moonlight Seal
       id: 38, mode: 'both', spanW: 980, spanH: 650,
       pad: { x: -355, y: 150 },
       sol: { angleDeg: -34, speed: 222 },
       goalFrac: 0.91,
-      blockDirect: 'wide',
       bodies: [
         { kind: 'star', x: -120, y: 0, r: 25, gm: 3600000, visualR: 165 },
         { kind: 'moon', cx: -120, cy: 0, orbitR: 155, orbitPhase: 2.1, orbitSpeed: OMEGA, r: 14, gm: 1300000, visualR: 100 },
@@ -1272,16 +1098,13 @@
         { frac: 0.44 },
         { frac: 0.64, orbit: { cx: 190, cy: 20, orbitSpeed: OMEGA } },
         { frac: 0.80 }
-      ],
-      fieldCount: 14, symField: 'rot'
+      ]
     },
     {
-      // 6-Body Pendulum Binary Archipelago!
       id: 39, mode: 'both', spanW: 1000, spanH: 660,
       pad: { x: -365, y: 155 },
       sol: { angleDeg: -26, speed: 235 },
       goalFrac: 0.91,
-      blockDirect: 'wide',
       bodies: [
         { kind: 'star', x: -165, y: 0, r: 24, gm: 3300000, visualR: 155 },
         { kind: 'moon', cx: -165, cy: 0, orbitR: 115, orbitPhase: 0.2, orbitSpeed: OMEGA * 2, r: 13, gm: 1100000, visualR: 90 },
@@ -1290,18 +1113,13 @@
         { kind: 'planet', x: 0, y: -195, r: 17, gm: 1650000, visualR: 110 },
         { kind: 'planet', x: 0, y: 195, r: 17, gm: 1650000, visualR: 110 }
       ],
-      debris: [{ x: 0, y: -68, r: 13 }, { x: 0, y: 0, r: 14 }, { x: 0, y: 68, r: 13 }],
-      targetSpecs: [{ frac: 0.22 }, { frac: 0.48 }, { frac: 0.72 }],
-      fieldCount: 14, symField: 'xy',
-      gates: [{ frac: 0.60, gap: 15, side: 'left' }]
+      targetSpecs: [{ frac: 0.22 }, { frac: 0.48 }, { frac: 0.72 }]
     },
     {
-      // 5-Body Rotating Quad-Planet Citadel + 4 Orbiting Seals!
       id: 40, mode: 'both', spanW: 980, spanH: 660,
       pad: { x: -355, y: 145 },
       sol: { angleDeg: -16, speed: 208 },
       goalFrac: 0.91,
-      blockDirect: 'wide',
       bodies: [
         { kind: 'star', x: 0, y: 0, r: 27, gm: 4300000, visualR: 180 },
         { kind: 'planet', cx: 0, cy: 0, orbitR: 230, orbitPhase: 0.0, orbitSpeed: OMEGA, r: 15, gm: 1200000, visualR: 95 },
@@ -1309,19 +1127,16 @@
         { kind: 'planet', cx: 0, cy: 0, orbitR: 230, orbitPhase: Math.PI, orbitSpeed: OMEGA, r: 15, gm: 1200000, visualR: 95 },
         { kind: 'planet', cx: 0, cy: 0, orbitR: 230, orbitPhase: Math.PI * 1.5, orbitSpeed: OMEGA, r: 15, gm: 1200000, visualR: 95 }
       ],
-      debris: makeDebrisRing(0, 0, 175, 8, [1, 5], -OMEGA, 12, 0),
       targetSpecs: [
         { frac: 0.22, orbit: { cx: 0, cy: 0, orbitSpeed: -OMEGA } },
         { frac: 0.42, orbit: { cx: 0, cy: 0, orbitSpeed: -OMEGA } },
         { frac: 0.62, orbit: { cx: 0, cy: 0, orbitSpeed: -OMEGA } },
         { frac: 0.78, orbit: { cx: 0, cy: 0, orbitSpeed: -OMEGA } }
-      ],
-      fieldCount: 12, symField: 'xy'
+      ]
     },
 
-    // ================= 41–50: Master 5–7 Body Razor-Thin Trials (すれっすれ!) =================
+    // ================= 41–50: Master 5–7 Body Orbital Labyrinths =================
     {
-      // 5-Body Warp + Orbiting Moon + 4 Seals
       id: 41, mode: 'both', spanW: 980, spanH: 650,
       pad: { x: -350, y: 135 },
       sol: { angleDeg: -34, speed: 215 },
@@ -1340,12 +1155,9 @@
         { frac: 0.44 },
         { frac: 0.62, orbit: { cx: 175, cy: 0, orbitSpeed: -OMEGA } },
         { frac: 0.78 }
-      ],
-      fieldCount: 16, symField: 'rot',
-      gates: [{ frac: 0.70, gap: 13, side: 'right' }]
+      ]
     },
     {
-      // 5-Body Warp Orbit Injection II + 5 Orbiting Targets
       id: 42, mode: 'destroy', spanW: 980, spanH: 650,
       pad: { x: -360, y: -135 },
       sol: { angleDeg: 24, speed: 218 },
@@ -1356,7 +1168,7 @@
         { kind: 'planet', x: 290, y: -145, r: 16, gm: 1350000, visualR: 100 },
         { kind: 'planet', x: 290, y: 145, r: 16, gm: 1350000, visualR: 100 }
       ],
-      debris: makeDebrisRing(95, 0, 220, 6, [], OMEGA, 13, 0.3),
+      debris: makeDebrisRing(95, 0, 220, 4, [], OMEGA, 13, 0.3),
       warpSpecs: [{ step: 74, exitX: 95, exitY: -130, r: 26, pairIndex: 0 }],
       targetSpecs: [
         { frac: 0.16 },
@@ -1364,12 +1176,9 @@
         { frac: 0.56, orbit: { cx: 95, cy: 0, orbitSpeed: OMEGA } },
         { frac: 0.74, orbit: { cx: 95, cy: 0, orbitSpeed: OMEGA } },
         { frac: 0.90, orbit: { cx: 95, cy: 0, orbitSpeed: OMEGA } }
-      ],
-      fieldCount: 16, symField: 'y',
-      gates: [{ frac: 0.64, gap: 12 }]
+      ]
     },
     {
-      // 5-Body Subspace Airlock + 4 Seals
       id: 43, mode: 'both', spanW: 980, spanH: 650,
       pad: { x: -355, y: 125 },
       sol: { angleDeg: -36, speed: 218 },
@@ -1383,7 +1192,7 @@
       ],
       debris: [
         ...makeVerticalDebrisWall(10, -560, 560, 44, 14),
-        ...makeDebrisRing(185, -10, 190, 6, [], -OMEGA, 12, 0.4)
+        ...makeDebrisRing(185, -10, 190, 4, [], -OMEGA, 12, 0.4)
       ],
       warpSpecs: [{ step: 82, exitX: 115, exitY: 145, r: 26, pairIndex: 0 }],
       targetSpecs: [
@@ -1391,12 +1200,9 @@
         { frac: 0.46, orbit: { cx: 185, cy: -10, orbitSpeed: OMEGA } },
         { frac: 0.64 },
         { frac: 0.80 }
-      ],
-      fieldCount: 16, symField: 'rot',
-      gates: [{ frac: 0.72, gap: 12 }]
+      ]
     },
     {
-      // 6-Body Three-Chamber Double-Warp Labyrinth + 4 Seals!
       id: 44, mode: 'both', spanW: 1020, spanH: 660,
       pad: { x: -375, y: 145 },
       sol: { angleDeg: -36, speed: 225 },
@@ -1411,19 +1217,15 @@
       ],
       debris: [
         ...makeVerticalDebrisWall(-122, -560, 560, 44, 13),
-        ...makeVerticalDebrisWall(122, -560, 560, 44, 13),
-        ...makeDebrisRing(0, 0, 92, 4, [], -OMEGA * 2, 11, 0)
+        ...makeVerticalDebrisWall(122, -560, 560, 44, 13)
       ],
       warpSpecs: [
         { step: 64, exitX: -20, exitY: 150, r: 26, pairIndex: 0 },
         { step: 146, exitX: 205, exitY: -150, r: 26, pairIndex: 1 }
       ],
-      targetSpecs: [{ frac: 0.14 }, { frac: 0.40 }, { frac: 0.62 }, { frac: 0.80 }],
-      fieldCount: 16, symField: 'rot',
-      gates: [{ frac: 0.72, gap: 12 }]
+      targetSpecs: [{ frac: 0.14 }, { frac: 0.40 }, { frac: 0.62 }, { frac: 0.80 }]
     },
     {
-      // 6-Body Binary Warp Shatter (5 Targets!)
       id: 45, mode: 'destroy', spanW: 1000, spanH: 660,
       pad: { x: -365, y: 135 },
       sol: { angleDeg: -32, speed: 218 },
@@ -1435,7 +1237,6 @@
         { kind: 'planet', x: 290, y: -165, r: 16, gm: 1400000, visualR: 100 },
         { kind: 'planet', x: 290, y: 165, r: 16, gm: 1400000, visualR: 100 }
       ],
-      debris: makeDebrisRing(0, 0, 76, 4, [], OMEGA * 2, 12, 0),
       warpSpecs: [
         { step: 74, exitX: 55, exitY: 130, r: 26, pairIndex: 0 },
         { step: 158, exitX: -255, exitY: -115, r: 26, pairIndex: 1 }
@@ -1446,17 +1247,13 @@
         { frac: 0.56, orbit: { cx: 170, cy: 0, orbitSpeed: -OMEGA } },
         { frac: 0.74, orbit: { cx: -170, cy: 0, orbitSpeed: OMEGA } },
         { frac: 0.90 }
-      ],
-      fieldCount: 16, symField: 'xy',
-      gates: [{ frac: 0.46, gap: 12 }]
+      ]
     },
     {
-      // 6-Body Twin-Orbit Resonance + 5 Seals
       id: 46, mode: 'both', spanW: 1000, spanH: 660,
       pad: { x: -365, y: 145 },
       sol: { angleDeg: -30, speed: 222 },
       goalFrac: 0.91,
-      blockDirect: 'wide',
       bodies: [
         { kind: 'star', x: -155, y: 15, r: 25, gm: 3600000, visualR: 160 },
         { kind: 'planet', cx: -155, cy: 15, orbitR: 160, orbitPhase: 0.9, orbitSpeed: OMEGA, r: 15, gm: 1400000, visualR: 105 },
@@ -1472,17 +1269,13 @@
         { frac: 0.56, orbit: { cx: 175, cy: -15, orbitSpeed: OMEGA } },
         { frac: 0.72 },
         { frac: 0.82 }
-      ],
-      fieldCount: 18, symField: 'rot',
-      gates: [{ frac: 0.64, gap: 11 }]
+      ]
     },
     {
-      // 6-Body Chaos Corridor II + 4 Seals
       id: 47, mode: 'both', spanW: 980, spanH: 660,
       pad: { x: -355, y: 155 },
       sol: { angleDeg: -28, speed: 230 },
       goalFrac: 0.91,
-      blockDirect: 'wide',
       bodies: [
         { kind: 'star', x: 0, y: -150, r: 25, gm: 3600000, visualR: 160 },
         { kind: 'star2', x: 0, y: 150, r: 25, gm: 3600000, visualR: 160 },
@@ -1492,17 +1285,13 @@
         { kind: 'planet', x: 240, y: 125, r: 16, gm: 1500000, visualR: 105 }
       ],
       debris: [
-        ...makeDebrisRing(0, -150, 105, 4, [], OMEGA * 2, 12, 0),
-        ...makeDebrisRing(0, 150, 105, 4, [], -OMEGA * 2, 12, 0.8),
-        { x: 0, y: 0, r: 15 }
+        ...makeDebrisRing(0, -150, 105, 3, [], OMEGA * 2, 12, 0),
+        ...makeDebrisRing(0, 150, 105, 3, [], -OMEGA * 2, 12, 0.8)
       ],
       warpSpecs: [{ step: 82, exitX: 155, exitY: 165, r: 26, pairIndex: 0 }],
-      targetSpecs: [{ frac: 0.18 }, { frac: 0.44 }, { frac: 0.64 }, { frac: 0.80 }],
-      fieldCount: 16, symField: 'xy',
-      gates: [{ frac: 0.72, gap: 11 }]
+      targetSpecs: [{ frac: 0.18 }, { frac: 0.44 }, { frac: 0.64 }, { frac: 0.80 }]
     },
     {
-      // 6-Body Pentagonal Starfield (1 Central Star + 5 Pentagonal Planets) + 6 Targets!
       id: 48, mode: 'destroy', spanW: 1000, spanH: 660,
       pad: { x: -370, y: 145 },
       sol: { angleDeg: -22, speed: 220 },
@@ -1514,7 +1303,6 @@
         { kind: 'planet', x: -206, y: 148, r: 16, gm: 1550000, visualR: 105 },
         { kind: 'planet', x: 79, y: 238, r: 16, gm: 1550000, visualR: 105 }
       ],
-      debris: makeDebrisRing(0, 0, 215, 5, [], OMEGA, 12, 0.4),
       warpSpecs: [{ step: 70, exitX: 0, exitY: -130, r: 26, pairIndex: 0 }],
       targetSpecs: [
         { frac: 0.14 },
@@ -1523,12 +1311,9 @@
         { frac: 0.64, orbit: { cx: 0, cy: 0, orbitSpeed: -OMEGA } },
         { frac: 0.78, orbit: { cx: 0, cy: 0, orbitSpeed: -OMEGA } },
         { frac: 0.90 }
-      ],
-      fieldCount: 16, symField: 'rot',
-      gates: [{ frac: 0.56, gap: 11 }]
+      ]
     },
     {
-      // 6-Body Eclipse Protocol + Dual Warp + 5 Seals
       id: 49, mode: 'both', spanW: 1020, spanH: 670,
       pad: { x: -370, y: 145 },
       sol: { angleDeg: -34, speed: 222 },
@@ -1541,10 +1326,7 @@
         { kind: 'planet', x: -295, y: -165, r: 16, gm: 1450000, visualR: 100 },
         { kind: 'planet', x: 295, y: 165, r: 16, gm: 1450000, visualR: 100 }
       ],
-      debris: [
-        ...makeVerticalDebrisWall(0, -560, 560, 44, 14),
-        ...makeDebrisRing(180, 0, 195, 6, [], -OMEGA, 12, 0.2)
-      ],
+      debris: makeVerticalDebrisWall(0, -560, 560, 44, 14),
       warpSpecs: [
         { step: 78, exitX: 180, exitY: 122, r: 26, pairIndex: 0 },
         { step: 164, exitX: -220, exitY: -140, r: 26, pairIndex: 1 }
@@ -1555,17 +1337,13 @@
         { frac: 0.54 },
         { frac: 0.70, orbit: { cx: -180, cy: 0, orbitSpeed: -OMEGA } },
         { frac: 0.82 }
-      ],
-      fieldCount: 18, symField: 'rot',
-      gates: [{ frac: 0.62, gap: 11 }, { frac: 0.86, gap: 10 }]
+      ]
     },
     {
-      // 7-BODY GRAND FINALE (3 Stars + 2 Planets + 2 Orbiting Moons + Dual Warp + 6 Seals!)
       id: 50, mode: 'both', spanW: 1040, spanH: 680,
       pad: { x: -380, y: 155 },
       sol: { angleDeg: -32, speed: 224 },
       goalFrac: 0.92,
-      blockDirect: 'wide',
       bodies: [
         { kind: 'star', x: -185, y: 35, r: 25, gm: 3700000, visualR: 160 },
         { kind: 'star2', x: 185, y: 35, r: 25, gm: 3800000, visualR: 165 },
@@ -1575,7 +1353,7 @@
         { kind: 'planet', x: -305, y: -155, r: 16, gm: 1450000, visualR: 100 },
         { kind: 'planet', x: 305, y: -155, r: 16, gm: 1450000, visualR: 100 }
       ],
-      debris: makeDebrisRing(0, 35, 86, 5, [], OMEGA * 2, 12, 0),
+      debris: makeDebrisRing(0, 35, 86, 3, [], OMEGA * 2, 12, 0),
       warpSpecs: [
         { step: 78, exitX: 185, exitY: 165, r: 27, pairIndex: 0 },
         { step: 168, exitX: -185, exitY: -125, r: 27, pairIndex: 1 }
@@ -1587,9 +1365,7 @@
         { frac: 0.62, orbit: { cx: 0, cy: -185, orbitSpeed: OMEGA } },
         { frac: 0.74 },
         { frac: 0.84 }
-      ],
-      fieldCount: 20, symField: 'y',
-      gates: [{ frac: 0.56, gap: 11 }, { frac: 0.88, gap: 10 }]
+      ]
     }
   ];
 
